@@ -1,12 +1,13 @@
 //
 //  ERStopWatch.m
-//  Nutricia
 //
 //  Created by Zhang Zhicheng on 12-8-27.
 
 //
 
 #import "ERStopWatch.h"
+#import <mach/mach_time.h>
+
 
 @implementation ERStopWatch
 
@@ -33,55 +34,57 @@ static ERStopWatchLogType logType = ERStopWatchLogTypeNone;
     
 }
 
-+ (NSTimeInterval)startWatch: (NSString *)watchName
++ (void)startWatch: (NSString *)watchName
 {
     if (!_instance) {
         _instance = [[ERStopWatch alloc] init];
     }
     
-    return [_instance startWatch:watchName shouldLog:(logType & ERStopWatchLogTypeStart)];
+    [_instance startWatch:watchName shouldLog:(logType & ERStopWatchLogTypeStart)];
 }
 
-+ (NSTimeInterval)stopWatch: (NSString *)watchName
++ (void)stopWatch: (NSString *)watchName
 {
     if (!_instance) {
-        return 0;
+        return ;
     }
     
-    return [_instance stopWatch:watchName shouldLog:(logType & ERStopWatchLogTypeStop)];
+    [_instance stopWatch:watchName shouldLog:(logType & ERStopWatchLogTypeStop)];
 }
 
-+ (NSTimeInterval)cutWatch: (NSString *)watchName
++ (void)cutWatch: (NSString *)watchName
 {
     if ((!_instance)||(logType == ERStopWatchLogTypeNone)) {
-        return 0;
+        return ;
     }
     
-    return [_instance cutWatch:watchName];
+    [_instance cutWatch:watchName];
 }
 
-+ (NSTimeInterval)pauseWatch: (NSString *)watchName
++ (void)pauseWatch: (NSString *)watchName
 {
     if ((!_instance)||(logType == ERStopWatchLogTypeNone)) {
-        return 0;
+        return ;
     }
     
-    return [_instance pauseWatch:watchName shouldLog:(logType != ERStopWatchLogTypeNone)];
+    [_instance pauseWatch:watchName shouldLog:(logType != ERStopWatchLogTypeNone)];
 }
 
-+ (NSTimeInterval)resumeWatch: (NSString *)watchName
++ (void)resumeWatch: (NSString *)watchName
 {
     if ((!_instance)||(logType == ERStopWatchLogTypeNone)) {
-        return 0;
+        return ;
     }
     
-    return [_instance resumeWatch:watchName shouldLog:(logType != ERStopWatchLogTypeNone)];
+    [_instance resumeWatch:watchName shouldLog:(logType != ERStopWatchLogTypeNone)];
 }
 
-- (NSTimeInterval)startWatch: (NSString *)watchName
-                   shouldLog: (BOOL)shouldLog
+- (void)startWatch: (NSString *)watchName
+         shouldLog: (BOOL)shouldLog
 {
-    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+//    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    
+    uint64_t start = mach_absolute_time();
     
     if ([_stopWatchDictionary objectForKey:watchName]) {
         [_stopWatchDictionary removeObjectForKey:watchName];
@@ -90,95 +93,150 @@ static ERStopWatchLogType logType = ERStopWatchLogTypeNone;
     NSMutableDictionary *singleWatch = [NSMutableDictionary dictionary];
     
     [singleWatch setObject:[NSNumber numberWithDouble:0] forKey:@"offset"];
-    [singleWatch setObject:[NSNumber numberWithDouble:timeStamp] forKey:@"startStamp"];
+//    [singleWatch setObject:[NSNumber numberWithDouble:timeStamp] forKey:@"startStamp"];
+    
+    [singleWatch setObject:[NSNumber numberWithLongLong:start] forKey:@"startStampMach"];
+    
     [singleWatch setObject:[NSNumber numberWithInt:ERStopWatchStateStart] forKey:@"state"];
     
     [_stopWatchDictionary setObject:singleWatch forKey:watchName];
     
+    
+    
     if (shouldLog) {
-        NSLog(@"------------- %@ : start at %lf",watchName, timeStamp);
+        NSLog(@"------------- %@ : start",watchName);
     }
     
-    return timeStamp;
+    return;
 
 }
 
-- (NSTimeInterval)stopWatch: (NSString *)watchName
-                  shouldLog: (BOOL)shouldLog
+- (void)stopWatch: (NSString *)watchName
+        shouldLog: (BOOL)shouldLog
 {
-    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+//    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    
+    uint64_t stop = mach_absolute_time();
     
     NSMutableDictionary *singleWatch = [_stopWatchDictionary objectForKey:watchName];
     
-    [singleWatch setObject:[NSNumber numberWithDouble:timeStamp] forKey:@"stopStamp"];;
+    [singleWatch setObject:[NSNumber numberWithLongLong:stop] forKey:@"stopStampMach"];
+//    [singleWatch setObject:[NSNumber numberWithDouble:timeStamp] forKey:@"stopStamp"];;
     [singleWatch setObject:[NSNumber numberWithInt:ERStopWatchStateStop] forKey:@"state"];
     
-    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue]);
     
-    if (shouldLog) {
-        NSLog(@"------------- %@ : stop at %lf, total time %lf",watchName, timeStamp, timeInterval);
+    static mach_timebase_info_data_t    sTimebaseInfo;
+    
+    if ( sTimebaseInfo.denom == 0 ) {
+        (void) mach_timebase_info(&sTimebaseInfo);
     }
     
-    return timeStamp;
+    
+    
+    uint64_t timeInt = [[singleWatch objectForKey:@"offset"] longLongValue] + stop - [[singleWatch objectForKey:@"startStampMach"] longLongValue];
+    
+    uint64_t elapsedNano = timeInt * sTimebaseInfo.numer / sTimebaseInfo.denom;
+    
+    double_t nanos = (double_t)elapsedNano * 1e-9;
+    
+    
+    if (shouldLog) {
+        NSLog(@"------------- %@ : stop, total time %lf",watchName,nanos);
+    }
+    
+    return;
 }
 
-- (NSTimeInterval)cutWatch: (NSString *)watchName
+- (void)cutWatch: (NSString *)watchName
 {
-    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+//    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    
+    uint64_t stop = mach_absolute_time();
     
     NSMutableDictionary *singleWatch = [_stopWatchDictionary objectForKey:watchName];
     
-    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue]);
+//    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue]);
     
-    NSLog(@"------------- %@ : cut at %lf, time from start %lf",watchName,timeStamp, timeInterval);
+    static mach_timebase_info_data_t    sTimebaseInfo;
     
-    return timeStamp;
+    if ( sTimebaseInfo.denom == 0 ) {
+        (void) mach_timebase_info(&sTimebaseInfo);
+    }
+
+    
+    uint64_t timeInt = [[singleWatch objectForKey:@"offset"] longLongValue] + stop - [[singleWatch objectForKey:@"startStampMach"] longLongValue];
+    
+    uint64_t elapsedNano = timeInt * sTimebaseInfo.numer / sTimebaseInfo.denom;
+    
+    double_t nanos = (double_t)elapsedNano * 1e-9;
+    
+
+    
+    NSLog(@"------------- %@ : cut, time from start %lf",watchName, nanos);
+    
+    return;
 }
 
-- (NSTimeInterval)pauseWatch: (NSString *)watchName
-                 shouldLog: (BOOL)shouldLog
+- (void)pauseWatch: (NSString *)watchName
+         shouldLog: (BOOL)shouldLog
 {
     
-    
-    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    uint64_t stop = mach_absolute_time();
+//    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
     
     NSMutableDictionary *singleWatch = [_stopWatchDictionary objectForKey:watchName];
     
     if ([[singleWatch objectForKey:@"state"] intValue] != ERStopWatchStateStart) {
-        return 0;
+        return ;
     }
     
-    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue] );
+    static mach_timebase_info_data_t    sTimebaseInfo;
     
-    [singleWatch setObject:[NSNumber numberWithDouble:timeInterval] forKey:@"offset"];
+    if ( sTimebaseInfo.denom == 0 ) {
+        (void) mach_timebase_info(&sTimebaseInfo);
+    }
+    
+    
+    uint64_t timeInt = [[singleWatch objectForKey:@"offset"] longLongValue] + stop - [[singleWatch objectForKey:@"startStampMach"] longLongValue];
+
+    uint64_t elapsedNano = timeInt * sTimebaseInfo.numer / sTimebaseInfo.denom;
+    
+    double_t nanos = (double_t)elapsedNano * 1e-9;
+    
+    
+//    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue] );
+    
+    [singleWatch setObject:[NSNumber numberWithLongLong:timeInt] forKey:@"offset"];
     [singleWatch setObject:[NSNumber numberWithInt:ERStopWatchStatePause] forKey:@"state"];
     
     if (shouldLog) {
-        NSLog(@"------------- %@ : pause at %lf, time from start %lf",watchName, timeStamp, timeInterval);
+        NSLog(@"------------- %@ : pause , time from start %lf",watchName, nanos);
     }
     
-    return timeStamp;
+    return;
 }
 
-- (NSTimeInterval)resumeWatch: (NSString *)watchName
-                 shouldLog: (BOOL)shouldLog
+- (void)resumeWatch: (NSString *)watchName
+          shouldLog: (BOOL)shouldLog
 {
-    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+//    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    
+    uint64_t start = mach_absolute_time();
     
     NSMutableDictionary *singleWatch = [_stopWatchDictionary objectForKey:watchName];
     
     if ([[singleWatch objectForKey:@"state"] intValue] != ERStopWatchStatePause) {
-        return 0;
+        return;
     }
     
-    [singleWatch setObject:[NSNumber numberWithDouble:timeStamp] forKey:@"startStamp"];
+    [singleWatch setObject:[NSNumber numberWithLongLong:start] forKey:@"startStampMach"];
     [singleWatch setObject:[NSNumber numberWithInt:ERStopWatchStateStart] forKey:@"state"];
     
     if (shouldLog) {
-        NSLog(@"------------- %@ : resume at %lf ",watchName, timeStamp);
+        NSLog(@"------------- %@ : resume  ",watchName);
     }
     
-    return timeStamp;
+    return;
 }
 
 @end

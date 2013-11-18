@@ -1,12 +1,13 @@
 //
 //  ERStopWatch.h
-//  Nutricia
 //
 //  Created by Zhang Zhicheng on 12-8-27.
 
 //
 
 #import <Foundation/Foundation.h>
+
+
 
 typedef enum
 {
@@ -28,14 +29,14 @@ typedef enum
     
 }
 
-+ (NSTimeInterval)startWatch: (NSString *)watchName;
++ (void)startWatch: (NSString *)watchName;
 
-+ (NSTimeInterval)stopWatch: (NSString *)watchName;
++ (void)stopWatch: (NSString *)watchName;
 
-+ (NSTimeInterval)cutWatch: (NSString *)watchName;
++ (void)cutWatch: (NSString *)watchName;
 
-+ (NSTimeInterval)pauseWatch: (NSString *)watchName;
++ (void)pauseWatch: (NSString *)watchName;
 
-+ (NSTimeInterval)resumeWatch: (NSString *)watchName;
++ (void)resumeWatch: (NSString *)watchName;
 
 @end
