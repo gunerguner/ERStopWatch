@@ -52,13 +52,20 @@ static ERStopWatchLogType logType = ERStopWatchLogTypeNone;
     [_instance stopWatch:watchName shouldLog:(logType & ERStopWatchLogTypeStop)];
 }
 
-+ (void)cutWatch: (NSString *)watchName
++ (void)cutWatch: (NSString *)watchName tag: (NSString *)tag
 {
     if ((!_instance)||(logType == ERStopWatchLogTypeNone)) {
         return ;
     }
     
-    [_instance cutWatch:watchName];
+    [_instance cutWatch:watchName tag:tag];
+
+}
+
+
++ (void)cutWatch: (NSString *)watchName
+{
+    [self cutWatch:watchName tag: nil];
 }
 
 + (void)pauseWatch: (NSString *)watchName
@@ -147,22 +154,22 @@ static ERStopWatchLogType logType = ERStopWatchLogTypeNone;
     return;
 }
 
-- (void)cutWatch: (NSString *)watchName
+
+
+- (void)cutWatch: (NSString *)watchName tag: (NSString *)tag
 {
-//    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
-    
     uint64_t stop = mach_absolute_time();
     
     NSMutableDictionary *singleWatch = [_stopWatchDictionary objectForKey:watchName];
     
-//    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue]);
+    //    NSTimeInterval timeInterval = [[singleWatch objectForKey:@"offset"] doubleValue] + ( timeStamp - [[singleWatch objectForKey:@"startStamp"] doubleValue]);
     
     static mach_timebase_info_data_t    sTimebaseInfo;
     
     if ( sTimebaseInfo.denom == 0 ) {
         (void) mach_timebase_info(&sTimebaseInfo);
     }
-
+    
     
     uint64_t timeInt = [[singleWatch objectForKey:@"offset"] longLongValue] + stop - [[singleWatch objectForKey:@"startStampMach"] longLongValue];
     
@@ -170,12 +177,16 @@ static ERStopWatchLogType logType = ERStopWatchLogTypeNone;
     
     double_t nanos = (double_t)elapsedNano * 1e-9;
     
-
+    if (!tag) {
+        tag = @"";
+    }
     
-    NSLog(@"------------- %@ : cut, time from start %lf",watchName, nanos);
+    NSLog(@"------------- %@ : cut, tag %@ , time from start %lf",watchName, tag, nanos);
     
     return;
+
 }
+
 
 - (void)pauseWatch: (NSString *)watchName
          shouldLog: (BOOL)shouldLog
