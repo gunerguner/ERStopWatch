@@ -33,6 +33,7 @@ typedef enum
 
 + (void)stopWatch: (NSString *)watchName;
 
++ (void)cutWatch: (NSString *)watchName tag: (NSString *)tag;
 + (void)cutWatch: (NSString *)watchName;
 
 + (void)pauseWatch: (NSString *)watchName;
