@@ -1,4 +1,4 @@
 ERStopWatch
 ===========
 
-A stop watch based on IOS for debuging efficiency. 
+A stop watch based on iOS for debuging efficiency. 
