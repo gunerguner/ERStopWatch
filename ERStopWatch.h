@@ -5,39 +5,26 @@
 
 //
 
-#import <Foundation/Foundation.h>
-
-
+@import Foundation;
 
 typedef enum
 {
-    ERStopWatchLogTypeNone      = 0,
-    ERStopWatchLogTypeStart     = 1 << 0,
-    ERStopWatchLogTypeStop      = 1 << 1
-} ERStopWatchLogType;
-
-typedef enum
-{
-    ERStopWatchStateStart       = 0,
-    ERStopWatchStatePause       = 1,
-    ERStopWatchStateStop        = 2
+    ERStopWatchStateStart,
+    ERStopWatchStatePause,
+    ERStopWatchStateStop,
 } ERStopWatchState;
 
+typedef void (^ERStopWatchBlk)(ERStopWatchState state, NSString * _Nonnull watchName, double_t nanos);
+
 @interface ERStopWatch : NSObject
-{
-    NSMutableDictionary *_stopWatchDictionary;
-    
-}
 
-+ (void)startWatch: (NSString *)watchName;
++ (void)startWatch: (NSString * _Nonnull)watchName blk:(ERStopWatchBlk _Nullable)blk;
++ (void)stopWatch: (NSString * _Nonnull)watchName blk:(ERStopWatchBlk _Nullable)blk;
 
-+ (void)stopWatch: (NSString *)watchName;
++ (void)cutWatch: (NSString * _Nonnull)watchName tag: (NSString * _Nullable)tag blk:(ERStopWatchBlk _Nullable)blk;
++ (void)cutWatch: (NSString * _Nonnull)watchName blk:(ERStopWatchBlk _Nullable)blk;
 
-+ (void)cutWatch: (NSString *)watchName tag: (NSString *)tag;
-+ (void)cutWatch: (NSString *)watchName;
-
-+ (void)pauseWatch: (NSString *)watchName;
-
-+ (void)resumeWatch: (NSString *)watchName;
++ (void)pauseWatch: (NSString * _Nonnull)watchName blk:(ERStopWatchBlk _Nullable)blk;
++ (void)resumeWatch: (NSString * _Nonnull)watchName blk:(ERStopWatchBlk _Nullable)blk;
 
 @end
