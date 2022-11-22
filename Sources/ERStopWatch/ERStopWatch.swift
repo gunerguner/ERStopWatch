@@ -7,13 +7,13 @@
 
 import Foundation
 
-enum ERStopWatchState {
-    case  start,pause,stop
+public enum ERStopWatchState {
+    case start,pause,stop
 }
 
-typealias ERStopWatchBlk = (ERStopWatchState,String,Double) -> Void
+public typealias ERStopWatchBlk = (ERStopWatchState, String, Double) -> Void
 
-struct ERStopWatchSwift {
+public struct ERStopWatchSwift {
     
     static public func start(watchName:String, blk:ERStopWatchBlk?) {
         
