@@ -3,132 +3,138 @@
 //
 //  Created by Zhang Zhicheng on 12-8-27.
 
-//
-
 #import "ERStopWatch.h"
 #import <mach/mach_time.h>
 
 @interface ERStopWatchModel : NSObject
-
-@property (nonatomic, assign) UInt64 startStampMach;
-@property (nonatomic, assign) double_t nanos;
+@property (nonatomic, assign) UInt64 startTick;
+@property (nonatomic, assign) double_t seconds;
 @property (nonatomic, assign) UInt64 offset;
 @property (nonatomic, assign) ERStopWatchState state;
-
 @end
 
 @implementation ERStopWatchModel
-
 @end
 
 @implementation ERStopWatch
 
-static NSMutableDictionary<NSString *, ERStopWatchModel *> *_stopWatchDictionary;
+static NSMutableDictionary<NSString *, ERStopWatchModel *> *watches;
+static NSLock *watchLock;
 
-+ (void)startWatch: (nonnull NSString *)watchName blk:(ERStopWatchBlk _Nullable)blk;
++ (void)initialize
 {
-    if (!_stopWatchDictionary) {
-        _stopWatchDictionary = [[NSMutableDictionary alloc] init];
+    if (self != ERStopWatch.class) {
+        return;
     }
-    
-    if ([_stopWatchDictionary objectForKey:watchName]) {
-        [_stopWatchDictionary removeObjectForKey:watchName];
+
+    watches = [NSMutableDictionary dictionary];
+    watchLock = [[NSLock alloc] init];
+}
+
++ (void)startWatch:(NSString *)watchName blk:(ERStopWatchBlk)blk
+{
+    [self withLock:^{
+        ERStopWatchModel *watch = [[ERStopWatchModel alloc] init];
+        watch.startTick = [self tick];
+        watch.offset = 0;
+        watch.state = ERStopWatchStateStart;
+        watches[watchName] = watch;
+
+        NSLog(@"------------- %@ : start", watchName);
+        if (blk) blk(ERStopWatchStateStart, watchName, 0);
+    }];
+}
+
++ (void)stopWatch:(NSString *)watchName blk:(ERStopWatchBlk)blk
+{
+    [self withLock:^{
+        ERStopWatchModel *watch = watches[watchName];
+        if (!watch) return;
+
+        NSArray<NSNumber *> *timing = [self secondsAndTicksForWatch:watch];
+        double seconds = timing.firstObject.doubleValue;
+
+        watch.state = ERStopWatchStateStop;
+        watch.seconds = seconds;
+
+        NSLog(@"------------- %@ : stop, total time %lf", watchName, seconds);
+        if (blk) blk(ERStopWatchStateStop, watchName, seconds);
+    }];
+}
+
++ (void)cutWatch:(NSString *)watchName blk:(ERStopWatchBlk)blk
+{
+    [self cutWatch:watchName tag:nil blk:blk];
+}
+
++ (void)cutWatch:(NSString *)watchName tag:(NSString *)tag blk:(ERStopWatchBlk)blk
+{
+    [self withLock:^{
+        ERStopWatchModel *watch = watches[watchName];
+        if (!watch) return;
+
+        double seconds = [self secondsAndTicksForWatch:watch].firstObject.doubleValue;
+
+        NSLog(@"------------- %@ : cut, tag %@ , time from start %lf", watchName, tag ?: @"", seconds);
+        if (blk) blk(watch.state, watchName, seconds);
+    }];
+}
+
++ (void)pauseWatch:(NSString *)watchName blk:(ERStopWatchBlk)blk
+{
+    [self withLock:^{
+        ERStopWatchModel *watch = watches[watchName];
+        if (!watch || watch.state != ERStopWatchStateStart) return;
+
+        NSArray<NSNumber *> *timing = [self secondsAndTicksForWatch:watch];
+        double seconds = timing.firstObject.doubleValue;
+        watch.offset = timing.lastObject.unsignedLongLongValue;
+        watch.state = ERStopWatchStatePause;
+
+        NSLog(@"------------- %@ : pause , time from start %lf", watchName, seconds);
+        if (blk) blk(ERStopWatchStatePause, watchName, seconds);
+    }];
+}
+
++ (void)resumeWatch:(NSString *)watchName blk:(ERStopWatchBlk)blk
+{
+    [self withLock:^{
+        ERStopWatchModel *watch = watches[watchName];
+        if (!watch || watch.state != ERStopWatchStatePause) return;
+
+        watch.startTick = [self tick];
+        watch.state = ERStopWatchStateStart;
+
+        NSLog(@"------------- %@ : resume", watchName);
+        if (blk) blk(ERStopWatchStateStart, watchName, 0);
+    }];
+}
+
++ (void)withLock:(dispatch_block_t)work
+{
+    [watchLock lock];
+    @try {
+        work();
+    } @finally {
+        [watchLock unlock];
     }
-    
-    ERStopWatchModel *model = [[ERStopWatchModel alloc] init];
-    model.startStampMach = mach_absolute_time();
-    model.offset = 0;
-    model.state = ERStopWatchStateStart;
-    
-    [_stopWatchDictionary setObject:model forKey:watchName];
-
-    NSLog(@"------------- %@ : start",watchName);
-    blk?blk(ERStopWatchStateStart,watchName,0):nil;
-    
-    return;
 }
 
-+ (void)stopWatch: (nonnull NSString *)watchName blk:(ERStopWatchBlk _Nullable)blk;
++ (UInt64)tick
 {
-    if (!_stopWatchDictionary)  return;
-    
-    ERStopWatchModel *singleWatch = [_stopWatchDictionary objectForKey:watchName];
-    if (!singleWatch)   return;
-    
-    double nanos = [[[self _nanoWithWatch:singleWatch] firstObject] doubleValue];
-    
-    singleWatch.state = ERStopWatchStateStop;
-    singleWatch.nanos = nanos;
-    
-    NSLog(@"------------- %@ : stop, total time %lf",watchName,nanos);
-    blk?blk(ERStopWatchStateStop,watchName,nanos):nil;
-    
+    return mach_absolute_time();
 }
 
-+ (void)cutWatch: (nonnull NSString *)watchName blk:(ERStopWatchBlk _Nullable)blk;
++ (NSArray<NSNumber *> *)secondsAndTicksForWatch:(ERStopWatchModel *)watch
 {
-    [self cutWatch:watchName tag: nil blk:(ERStopWatchBlk _Nullable)blk];
-}
+    static mach_timebase_info_data_t timebase;
+    if (timebase.denom == 0) {
+        mach_timebase_info(&timebase);
+    }
 
-+ (void)cutWatch: (nonnull NSString *)watchName tag: (nullable NSString *)tag blk:(ERStopWatchBlk _Nullable)blk;
-{
-    if (!_stopWatchDictionary)  return;
-    
-    ERStopWatchModel *singleWatch = [_stopWatchDictionary objectForKey:watchName];
-    if (!singleWatch)   return;
-    
-    double nanos = [[[self _nanoWithWatch:singleWatch] firstObject] doubleValue];
-    
-    NSLog(@"------------- %@ : cut, tag %@ , time from start %lf",watchName, tag?:@"", nanos);
-    blk?blk(ERStopWatchStateStart,watchName,nanos):nil;
-    
-}
-
-
-+ (void)pauseWatch: (nonnull NSString *)watchName blk:(ERStopWatchBlk _Nullable)blk;
-{
-    if (!_stopWatchDictionary) return ;
-    
-    ERStopWatchModel *singleWatch = [_stopWatchDictionary objectForKey:watchName];
-    if (!singleWatch || singleWatch.state != ERStopWatchStateStart)   return;
-    
-    NSArray *nanosArray = [self _nanoWithWatch:singleWatch];
-    
-    singleWatch.offset = [nanosArray[1] intValue];
-    singleWatch.state = ERStopWatchStatePause;
-
-    double nanos = [[nanosArray firstObject] doubleValue];
-    
-    NSLog(@"------------- %@ : pause , time from start %lf",watchName, nanos);
-    blk?blk(ERStopWatchStatePause,watchName,nanos):nil;
-}
-
-+ (void)resumeWatch: (nonnull NSString *)watchName blk:(ERStopWatchBlk _Nullable)blk
-{
-    if (!_stopWatchDictionary)  return ;
-    
-    uint64_t start = mach_absolute_time();
-    
-    ERStopWatchModel *singleWatch = [_stopWatchDictionary objectForKey:watchName];
-    if (!singleWatch || singleWatch.state != ERStopWatchStatePause)   return;
-    
-    singleWatch.startStampMach = start;
-    singleWatch.state = ERStopWatchStateStart;
-    
-    NSLog(@"------------- %@ : resume  ",watchName);
-    blk?blk(ERStopWatchStateStart,watchName,0):nil;
-}
-
-+ (NSArray *)_nanoWithWatch: (ERStopWatchModel *)singleWatch
-{
-    
-    static mach_timebase_info_data_t sTimebaseInfo;
-    mach_timebase_info(&sTimebaseInfo);
-    
-    UInt64 timeInt = singleWatch.offset + mach_absolute_time() - singleWatch.startStampMach;
-    double nanos = timeInt * 1e-9 * sTimebaseInfo.numer / sTimebaseInfo.denom;
-    
-    return @[@(nanos), @(timeInt)];
+    UInt64 ticks = watch.offset + [self tick] - watch.startTick;
+    double seconds = (double)ticks * 1e-9 * (double)timebase.numer / (double)timebase.denom;
+    return @[@(seconds), @(ticks)];
 }
 
 @end

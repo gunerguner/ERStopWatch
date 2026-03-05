@@ -1,101 +1,93 @@
-//
-//  ERStopWatch.swift
-//  StopWatchDemo
-//
-//  Created by Zhicheng Zhang on 2021/1/3.
-//
-
 import Foundation
 
 public enum ERStopWatchState {
-    case start,pause,stop
+    case start, pause, stop
 }
 
 public typealias ERStopWatchBlk = (ERStopWatchState, String, Double) -> Void
 
 public struct ERStopWatchSwift {
-    
-    static public func start(watchName:String, blk:ERStopWatchBlk?) {
-        
-        if (_stopWatchDictionary[watchName] != nil) {
-            _stopWatchDictionary.removeValue(forKey: watchName)
+    static public func start(watchName: String, blk: ERStopWatchBlk?) {
+        withLock {
+            watches[watchName] = Watch(startTick: tick(), offset: 0, state: .start)
+            print("------------- \(watchName) : start")
+            blk?(.start, watchName, 0)
         }
-        
-        _stopWatchDictionary[watchName] = ERStopWatchSwiftModel.init(startStampMach:mach_absolute_time(), offset:0 , state: .start)
-        
-        print("------------- \(watchName) : start")
-        blk?(.start,watchName,0)
-        
     }
-    
-    static public func stop(watchName:String, blk:ERStopWatchBlk?) {
-        
-        guard var singleWatch = _stopWatchDictionary[watchName] else { return }
-        
-        let (nanos,_) = _nano(singleWatch: singleWatch)
-        
-        singleWatch.state = .stop
-        singleWatch.nanos = nanos
-        
-        print("------------- \(watchName) : stop , total time \(nanos)");
-        blk?(.stop,watchName,nanos)
-        
-    }
-    
-    static public func cut(watchName:String, tag:String = "", blk:ERStopWatchBlk?) {
-        
-        guard let singleWatch = _stopWatchDictionary[watchName] else { return }
-        
-        let (nanos,_) = _nano(singleWatch: singleWatch)
-        
-        print("------------- \(watchName) : cut , time from start \(nanos)");
-        blk?(singleWatch.state,watchName,nanos)
-        
-    }
-    
-    static public func pause(watchName:String, blk:ERStopWatchBlk?) {
-        
-        guard var singleWatch = _stopWatchDictionary[watchName],singleWatch.state == .start else { return }
-        
-        let (nanos, timeInt) = _nano(singleWatch: singleWatch)
 
-        singleWatch.offset = timeInt
-        singleWatch.state = .pause
-        
-        print("------------- \(watchName) : pause , time from start \(nanos)");
-        blk?(.pause,watchName,nanos)
-        
-    }
-    
-    static public func resume(watchName:String, blk:ERStopWatchBlk?) {
-        
-        let start = mach_absolute_time()
-        guard var singleWatch = _stopWatchDictionary[watchName],singleWatch.state == .pause else { return }
-        
-        singleWatch.startStampMach = start
-        singleWatch.state = .start
-        
-        print("------------- \(watchName) : resume  ")
+    static public func stop(watchName: String, blk: ERStopWatchBlk?) {
+        withLock {
+            guard var watch = watches[watchName] else { return }
+            let (seconds, _) = elapsed(for: watch)
 
+            watch.state = .stop
+            watch.seconds = seconds
+            watches[watchName] = watch
+
+            print("------------- \(watchName) : stop , total time \(seconds)")
+            blk?(.stop, watchName, seconds)
+        }
     }
-    
-    static private var _stopWatchDictionary = [String:ERStopWatchSwiftModel]()
-    
-    static private func _nano(singleWatch:ERStopWatchSwiftModel) -> (Double, UInt64) {
-        
-        var sTimebaseInfo = mach_timebase_info_data_t()
-        mach_timebase_info(&sTimebaseInfo);
-        
-        let timeInt = singleWatch.offset + mach_absolute_time() - singleWatch.startStampMach
-        let nanos = Double(timeInt) * 1e-9 * Double(sTimebaseInfo.numer / sTimebaseInfo.denom)
-        
-        return (nanos, timeInt)
+
+    static public func cut(watchName: String, tag: String = "", blk: ERStopWatchBlk?) {
+        withLock {
+            guard let watch = watches[watchName] else { return }
+            let (seconds, _) = elapsed(for: watch)
+
+            print("------------- \(watchName) : cut \(tag.isEmpty ? "" : "[\(tag)]") , time from start \(seconds)")
+            blk?(watch.state, watchName, seconds)
+        }
+    }
+
+    static public func pause(watchName: String, blk: ERStopWatchBlk?) {
+        withLock {
+            guard var watch = watches[watchName], watch.state == .start else { return }
+            let (seconds, ticks) = elapsed(for: watch)
+
+            watch.offset = ticks
+            watch.state = .pause
+            watches[watchName] = watch
+
+            print("------------- \(watchName) : pause , time from start \(seconds)")
+            blk?(.pause, watchName, seconds)
+        }
+    }
+
+    static public func resume(watchName: String, blk: ERStopWatchBlk?) {
+        withLock {
+            guard var watch = watches[watchName], watch.state == .pause else { return }
+
+            watch.startTick = tick()
+            watch.state = .start
+            watches[watchName] = watch
+
+            print("------------- \(watchName) : resume")
+            blk?(.start, watchName, 0)
+        }
+    }
+
+    static private var watches = [String: Watch]()
+    static private let lock = NSLock()
+
+    static private func withLock(_ work: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        work()
+    }
+
+    static private func tick() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds
+    }
+
+    static private func elapsed(for watch: Watch) -> (Double, UInt64) {
+        let ticks = watch.offset + tick() - watch.startTick
+        return (Double(ticks) * 1e-9, ticks)
     }
 }
 
-private struct ERStopWatchSwiftModel {
-    var startStampMach:UInt64 = 0
-    var nanos:Double = 0
-    var offset:UInt64 = 0
-    var state:ERStopWatchState
+private struct Watch {
+    var startTick: UInt64 = 0
+    var seconds: Double = 0
+    var offset: UInt64 = 0
+    var state: ERStopWatchState
 }
